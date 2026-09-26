@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 
@@ -28,20 +29,36 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	log.Println("WebSocket client connected")
 
 	for {
-		messageType, message, err := conn.ReadMessage()
+		_, message, err := conn.ReadMessage()
 
 		if err != nil {
 			log.Println("WebSocket client disconnected")
 			break
 		}
 
-		log.Printf("Received: %s\n", message)
+		var clientMessage ClientMessage
 
-		err = conn.WriteMessage(messageType, []byte("hello client"))
+		err = json.Unmarshal(message, &clientMessage)
 
 		if err != nil {
-			log.Println("WebSocket write error:", err)
-			break
+			log.Println("Invalid WebSocket message:", err)
+			continue
+		}
+
+		if clientMessage.Type == "join" {
+			log.Printf("Player joined: %s\n", clientMessage.Nickname)
+
+			response := ServerMessage{
+				Type:     "joined",
+				Nickname: clientMessage.Nickname,
+			}
+
+			err = conn.WriteJSON(response)
+
+			if err != nil {
+				log.Println("WebSocket write error:", err)
+				break
+			}
 		}
 	}
 }
