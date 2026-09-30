@@ -10,6 +10,8 @@ const store = createStore({
   playerCount: 0,
   players: [],
   chatMessages: [],
+  lobbyPhase: "waiting",
+  countdown: 0,
   error: "",
 });
 
@@ -37,6 +39,18 @@ const socket = createSocket({
       store.setState({
         playerCount: message.playerCount,
         players: message.players,
+        lobbyPhase: message.phase,
+        countdown: message.countdown || 0,
+      });
+
+      return;
+    }
+
+    if (message.type === "game_start") {
+      store.setState({
+        screen: "game",
+        lobbyPhase: "game",
+        countdown: 0,
       });
 
       return;
@@ -221,6 +235,23 @@ function WaitingRoom(state) {
     },
     elem("h1", {}, "Waiting Room"),
     elem("p", {}, `Players: ${state.playerCount} / 4`),
+    state.lobbyPhase === "countdown"
+      ? elem(
+          "p",
+          {
+            class: "countdown",
+          },
+          `Game starts in ${state.countdown}`,
+        )
+      : elem(
+          "p",
+          {
+            class: "waiting-message",
+          },
+          state.playerCount < 2
+            ? "Waiting for another player..."
+            : "Waiting for more players...",
+        ),
     elem(
       "ul",
       {
@@ -236,6 +267,18 @@ function WaitingRoom(state) {
         ),
       ),
     ),
+    Chat(state),
+  );
+}
+
+function GameScreen(state) {
+  return elem(
+    "main",
+    {
+      class: "game-screen",
+    },
+    elem("h1", {}, "Bomberman"),
+    elem("p", {}, "Game started!"),
     Chat(state),
   );
 }
@@ -266,9 +309,12 @@ function App(state) {
     return WaitingRoom(state);
   }
 
-  return elem("main", {}, "Game");
-}
+  if (state.screen === "game") {
+    return GameScreen(state);
+  }
 
+  return elem("main", {}, "Unknown screen");
+}
 const app = createApp({
   root: "#app",
   store,

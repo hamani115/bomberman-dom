@@ -30,7 +30,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if player != nil {
 			lobby.RemovePlayer(player.ID)
-			lobby.BroadcastState()
+			lobby.PlayerCountChanged()
 
 			log.Printf("Player disconnected: %s\n", player.Nickname)
 		}
@@ -91,7 +91,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 			log.Printf("Player joined: %s (ID %d)\n", player.Nickname, player.ID)
 
-			lobby.BroadcastState()
+			lobby.PlayerCountChanged()
 		}
 
 		if clientMessage.Type == "chat" {

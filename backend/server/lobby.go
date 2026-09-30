@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -35,6 +36,10 @@ func (l *Lobby) AddPlayer(conn *websocket.Conn, nickname string) (*Player, error
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	if l.phase == "game" {
+		return nil, errors.New("the game has already started")
+	}
+
 	if len(l.players) >= maxPlayers {
 		return nil, errors.New("the game is full")
 	}
@@ -64,7 +69,7 @@ func (l *Lobby) RemovePlayer(playerID int) {
 	delete(l.players, playerID)
 }
 
-func (l *Lobby) snapshot() ([]*Player, []PlayerInfo) {
+func (l *Lobby) snapshot() ([]*Player, []PlayerInfo, string, int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -80,16 +85,18 @@ func (l *Lobby) snapshot() ([]*Player, []PlayerInfo) {
 		})
 	}
 
-	return players, playerInfos
+	return players, playerInfos, l.phase, l.countdown
 }
 
 func (l *Lobby) BroadcastState() {
-	players, playerInfos := l.snapshot()
+	players, playerInfos, phase, countdown := l.snapshot()
 
 	message := ServerMessage{
 		Type:        "lobby",
 		PlayerCount: len(playerInfos),
 		Players:     playerInfos,
+		Phase:       phase,
+		Countdown:   countdown,
 	}
 
 	for _, player := range players {
@@ -102,13 +109,158 @@ func (l *Lobby) BroadcastState() {
 }
 
 func (l *Lobby) Broadcast(message ServerMessage) {
-	players, _ := l.snapshot()
+	players, _, _, _ := l.snapshot()
 
 	for _, player := range players {
 		err := player.Send(message)
 
 		if err != nil {
 			continue
+		}
+	}
+}
+
+func (l *Lobby) stopWaitTimerLocked() {
+	if l.waitTimer == nil {
+		return
+	}
+
+	l.waitTimer.Stop()
+	l.waitTimer = nil
+}
+
+func (l *Lobby) cancelCountdownLocked() {
+	if l.countdownCancel != nil {
+		close(l.countdownCancel)
+		l.countdownCancel = nil
+	}
+
+	l.countdown = 0
+
+	if l.phase == "countdown" {
+		l.phase = "waiting"
+	}
+}
+
+func (l *Lobby) PlayerCountChanged() {
+	l.mu.Lock()
+
+	playerCount := len(l.players)
+
+	if l.phase == "game" {
+		l.mu.Unlock()
+		l.BroadcastState()
+		return
+	}
+
+	if playerCount < 2 {
+		l.stopWaitTimerLocked()
+		l.cancelCountdownLocked()
+
+		l.phase = "waiting"
+
+		l.mu.Unlock()
+		l.BroadcastState()
+		return
+	}
+
+	if l.phase == "countdown" {
+		l.mu.Unlock()
+		l.BroadcastState()
+		return
+	}
+
+	if playerCount == maxPlayers {
+		l.stopWaitTimerLocked()
+
+		l.mu.Unlock()
+
+		l.startCountdown()
+		return
+	}
+
+	if l.waitTimer == nil {
+		// run startCountdown() 20 seconds from now
+		l.waitTimer = time.AfterFunc(20*time.Second, func() {
+			l.startCountdown()
+		})
+	}
+
+	l.mu.Unlock()
+
+	l.BroadcastState()
+}
+
+func (l *Lobby) startCountdown() {
+	l.mu.Lock()
+
+	if l.phase != "waiting" || len(l.players) < 2 {
+		l.mu.Unlock()
+		return
+	}
+
+	l.stopWaitTimerLocked()
+
+	l.phase = "countdown"
+	l.countdown = 10
+	// to stop the timer
+	cancel := make(chan struct{})
+	l.countdownCancel = cancel
+
+	l.mu.Unlock()
+
+	l.BroadcastState()
+
+	go l.runCountdown(cancel)
+}
+
+func (l *Lobby) runCountdown(cancel <-chan struct{}) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-cancel:
+			return
+
+		case <-ticker.C:
+			l.mu.Lock()
+
+			if l.phase != "countdown" {
+				l.mu.Unlock()
+				return
+			}
+
+			if len(l.players) < 2 {
+				l.phase = "waiting"
+				l.countdown = 0
+				l.countdownCancel = nil
+
+				l.mu.Unlock()
+
+				l.BroadcastState()
+				return
+			}
+
+			l.countdown--
+
+			if l.countdown <= 0 {
+				l.phase = "game"
+				l.countdown = 0
+				l.countdownCancel = nil
+
+				l.mu.Unlock()
+
+				l.Broadcast(ServerMessage{
+					Type: "game_start",
+				})
+
+				return
+			}
+
+			l.mu.Unlock()
+
+			l.BroadcastState()
 		}
 	}
 }

@@ -20,6 +20,8 @@ type ServerMessage struct {
 	Message     string       `json:"message,omitempty"`
 	PlayerCount int          `json:"playerCount,omitempty"`
 	Players     []PlayerInfo `json:"players,omitempty"`
+	Phase       string       `json:"phase,omitempty"`
+	Countdown   int          `json:"countdown,omitempty"`
 }
 
 type Player struct {
