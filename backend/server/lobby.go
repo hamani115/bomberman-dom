@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -73,10 +74,20 @@ func (l *Lobby) snapshot() ([]*Player, []PlayerInfo, string, int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	ids := make([]int, 0, len(l.players))
+
+	for id := range l.players {
+		ids = append(ids, id)
+	}
+
+	sort.Ints(ids)
+
 	players := make([]*Player, 0, len(l.players))
 	playerInfos := make([]PlayerInfo, 0, len(l.players))
 
-	for _, player := range l.players {
+	for _, id := range ids {
+		player := l.players[id]
+
 		players = append(players, player)
 
 		playerInfos = append(playerInfos, PlayerInfo{
@@ -245,14 +256,18 @@ func (l *Lobby) runCountdown(cancel <-chan struct{}) {
 			l.countdown--
 
 			if l.countdown <= 0 {
+				gameMap := GenerateMap()
+
 				l.phase = "game"
 				l.countdown = 0
 				l.countdownCancel = nil
+				l.gameMap = gameMap
 
 				l.mu.Unlock()
 
 				l.Broadcast(ServerMessage{
 					Type: "game_start",
+					Map:  gameMap,
 				})
 
 				return

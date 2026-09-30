@@ -22,6 +22,7 @@ type ServerMessage struct {
 	Players     []PlayerInfo `json:"players,omitempty"`
 	Phase       string       `json:"phase,omitempty"`
 	Countdown   int          `json:"countdown,omitempty"`
+	Map         *GameMap     `json:"map,omitempty"`
 }
 
 type Player struct {
@@ -39,9 +40,17 @@ type Lobby struct {
 	countdown       int
 	waitTimer       *time.Timer
 	countdownCancel chan struct{}
+	gameMap         *GameMap
 }
 
 type PlayerInfo struct {
 	ID       int    `json:"id"`
 	Nickname string `json:"nickname"`
+}
+
+// game map
+type GameMap struct {
+	Rows  int        `json:"rows"`
+	Cols  int        `json:"cols"`
+	Tiles [][]string `json:"tiles"`
 }

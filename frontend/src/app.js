@@ -12,6 +12,7 @@ const store = createStore({
   chatMessages: [],
   lobbyPhase: "waiting",
   countdown: 0,
+  gameMap: null,
   error: "",
 });
 
@@ -51,6 +52,7 @@ const socket = createSocket({
         screen: "game",
         lobbyPhase: "game",
         countdown: 0,
+        gameMap: message.map,
       });
 
       return;
@@ -65,15 +67,17 @@ const socket = createSocket({
     if (message.type === "chat") {
       const state = store.getState();
 
+      const chatMessages = [
+        ...state.chatMessages,
+        {
+          playerId: message.playerId,
+          nickname: message.nickname,
+          message: message.message,
+        },
+      ];
+
       store.setState({
-        chatMessages: [
-          ...state.chatMessages,
-          {
-            playerId: message.playerId,
-            nickname: message.nickname,
-            message: message.message,
-          },
-        ],
+        chatMessages: chatMessages.slice(-100),
       });
 
       return;
@@ -106,7 +110,7 @@ function sendChat() {
   chatDraft = "";
 }
 
-function Chat(state) {
+function Chat(state, autofocus = false) {
   return elem(
     "section",
     {
@@ -151,7 +155,7 @@ function Chat(state) {
         type: "text",
         placeholder: "Write a message...",
         value: chatDraft,
-        autofocus: true,
+        autofocus,
         events: {
           input: (event) => {
             chatDraft = event.target.value;
@@ -267,7 +271,29 @@ function WaitingRoom(state) {
         ),
       ),
     ),
-    Chat(state),
+    Chat(state, true),
+  );
+}
+
+function GameBoard(gameMap) {
+  if (!gameMap) {
+    return elem("p", {}, "Loading map...");
+  }
+
+  return elem(
+    "div",
+    {
+      class: "game-board",
+    },
+    gameMap.tiles.flatMap((row, rowIndex) =>
+      row.map((tile, colIndex) =>
+        elem("div", {
+          class: `tile tile-${tile}`,
+          "data-row": rowIndex,
+          "data-col": colIndex,
+        }),
+      ),
+    ),
   );
 }
 
@@ -277,8 +303,14 @@ function GameScreen(state) {
     {
       class: "game-screen",
     },
-    elem("h1", {}, "Bomberman"),
-    elem("p", {}, "Game started!"),
+    elem(
+      "section",
+      {
+        class: "game-area",
+      },
+      elem("h1", {}, "Bomberman"),
+      GameBoard(state.gameMap),
+    ),
     Chat(state),
   );
 }
