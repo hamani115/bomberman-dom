@@ -257,6 +257,7 @@ func (l *Lobby) runCountdown(cancel <-chan struct{}) {
 
 			if l.countdown <= 0 {
 				gameMap := GenerateMap()
+				gamePlayers := l.assignSpawnPositionsLocked()
 
 				l.phase = "game"
 				l.countdown = 0
@@ -266,8 +267,9 @@ func (l *Lobby) runCountdown(cancel <-chan struct{}) {
 				l.mu.Unlock()
 
 				l.Broadcast(ServerMessage{
-					Type: "game_start",
-					Map:  gameMap,
+					Type:        "game_start",
+					Map:         gameMap,
+					GamePlayers: gamePlayers,
 				})
 
 				return
@@ -278,4 +280,41 @@ func (l *Lobby) runCountdown(cancel <-chan struct{}) {
 			l.BroadcastState()
 		}
 	}
+}
+
+func (l *Lobby) assignSpawnPositionsLocked() []GamePlayerInfo {
+	ids := make([]int, 0, len(l.players))
+
+	for id := range l.players {
+		ids = append(ids, id)
+	}
+
+	sort.Ints(ids)
+
+	spawnIndexes := []int{0, 1, 2, 3}
+
+	if len(ids) == 2 {
+		spawnIndexes = []int{0, 3}
+	}
+
+	gamePlayers := make([]GamePlayerInfo, 0, len(ids))
+
+	for index, id := range ids {
+		player := l.players[id]
+		spawn := spawnPositions[spawnIndexes[index]]
+
+		player.X = spawn.X
+		player.Y = spawn.Y
+		player.Lives = 3
+
+		gamePlayers = append(gamePlayers, GamePlayerInfo{
+			ID:       player.ID,
+			Nickname: player.Nickname,
+			X:        player.X,
+			Y:        player.Y,
+			Lives:    player.Lives,
+		})
+	}
+
+	return gamePlayers
 }

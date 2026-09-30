@@ -1,6 +1,9 @@
 import { elem, createStore, createApp } from "../framework/index.js";
 
 import { createSocket } from "./network/socket.js";
+import { startMovement } from "./game/movement.js";
+
+import { TILE_SIZE, PLAYER_SIZE } from "./game/constants.js";
 
 const store = createStore({
   screen: "nickname",
@@ -13,10 +16,56 @@ const store = createStore({
   lobbyPhase: "waiting",
   countdown: 0,
   gameMap: null,
+  gamePlayers: [],
   error: "",
 });
 
 let chatDraft = "";
+
+const playerElements = new Map();
+const runtimePositions = new Map();
+
+let stopMovement = null;
+
+function initializeRuntimePlayers(players) {
+  playerElements.clear();
+  runtimePositions.clear();
+
+  for (const player of players) {
+    runtimePositions.set(player.id, {
+      x: player.x,
+      y: player.y,
+    });
+  }
+}
+
+function startLocalMovement() {
+  if (stopMovement) {
+    stopMovement();
+  }
+
+  const state = store.getState();
+
+  const localPlayer = state.gamePlayers.find(
+    (player) => player.id === state.playerId,
+  );
+
+  if (!localPlayer || !state.gameMap) {
+    return;
+  }
+
+  stopMovement = startMovement({
+    gameMap: state.gameMap,
+
+    getPosition: () => runtimePositions.get(state.playerId),
+
+    setPosition: (position) => {
+      runtimePositions.set(state.playerId, position);
+    },
+
+    getElement: () => playerElements.get(state.playerId),
+  });
+}
 
 const socket = createSocket({
   onOpen: () => {
@@ -48,12 +97,17 @@ const socket = createSocket({
     }
 
     if (message.type === "game_start") {
+      initializeRuntimePlayers(message.gamePlayers);
+
       store.setState({
         screen: "game",
         lobbyPhase: "game",
         countdown: 0,
         gameMap: message.map,
+        gamePlayers: message.gamePlayers,
       });
+
+      startLocalMovement();
 
       return;
     }
@@ -275,7 +329,9 @@ function WaitingRoom(state) {
   );
 }
 
-function GameBoard(gameMap) {
+function GameBoard(state) {
+  const gameMap = state.gameMap;
+
   if (!gameMap) {
     return elem("p", {}, "Loading map...");
   }
@@ -285,14 +341,27 @@ function GameBoard(gameMap) {
     {
       class: "game-board",
     },
-    gameMap.tiles.flatMap((row, rowIndex) =>
-      row.map((tile, colIndex) =>
-        elem("div", {
-          class: `tile tile-${tile}`,
-          "data-row": rowIndex,
-          "data-col": colIndex,
-        }),
+    elem(
+      "div",
+      {
+        class: "map-layer",
+      },
+      gameMap.tiles.flatMap((row, rowIndex) =>
+        row.map((tile, colIndex) =>
+          elem("div", {
+            class: `tile tile-${tile}`,
+            "data-row": rowIndex,
+            "data-col": colIndex,
+          }),
+        ),
       ),
+    ),
+    elem(
+      "div",
+      {
+        class: "player-layer",
+      },
+      state.gamePlayers.map((player) => Player(player, state)),
     ),
   );
 }
@@ -309,9 +378,38 @@ function GameScreen(state) {
         class: "game-area",
       },
       elem("h1", {}, "Bomberman"),
-      GameBoard(state.gameMap),
+      GameBoard(state),
     ),
     Chat(state),
+  );
+}
+
+function Player(player, state) {
+  const isCurrentPlayer = player.id === state.playerId;
+
+  const position = runtimePositions.get(player.id) ?? {
+    x: player.x,
+    y: player.y,
+  };
+
+  return elem(
+    "div",
+    {
+      class: isCurrentPlayer ? "player current-player" : "player",
+
+      "data-player-id": player.id,
+      ref: (element) => {
+        playerElements.set(player.id, element);
+      },
+      style: `transform: translate3d(${position.x * TILE_SIZE - PLAYER_SIZE / 2}px, ${position.y * TILE_SIZE - PLAYER_SIZE / 2}px, 0);`,
+    },
+    elem(
+      "span",
+      {
+        class: "player-name",
+      },
+      isCurrentPlayer ? `${player.nickname} (You)` : player.nickname,
+    ),
   );
 }
 

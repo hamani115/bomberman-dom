@@ -33,6 +33,13 @@ var safeSpawnTiles = map[[2]int]bool{
 	{10, 13}: true,
 }
 
+var spawnPositions = []Position{
+	{X: 1.5, Y: 1.5},
+	{X: 13.5, Y: 1.5},
+	{X: 1.5, Y: 11.5},
+	{X: 13.5, Y: 11.5},
+}
+
 func isWall(row, col int) bool {
 	if row == 0 || row == mapRows-1 {
 		return true

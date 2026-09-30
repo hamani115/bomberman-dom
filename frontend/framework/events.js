@@ -15,3 +15,11 @@ export function applyEvents(element, events = {}) {
     addEvent(element, eventName, handler);
   }
 }
+
+export function listen(target, eventName, handler) {
+  addEvent(target, eventName, handler);
+
+  return function stopListening() {
+    target.removeEventListener(eventName, handler);
+  };
+}

@@ -57,6 +57,14 @@ export function createDomNode(
       continue;
     }
 
+    if (name === "ref") {
+      if (typeof value === "function") {
+        value(element);
+      }
+
+      continue;
+    }
+
     if (name === "autofocus" && value) {
       context.focusTarget = element;
     }

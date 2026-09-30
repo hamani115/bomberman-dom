@@ -14,21 +14,25 @@ type ClientMessage struct {
 }
 
 type ServerMessage struct {
-	Type        string       `json:"type"`
-	PlayerID    int          `json:"playerId,omitempty"`
-	Nickname    string       `json:"nickname,omitempty"`
-	Message     string       `json:"message,omitempty"`
-	PlayerCount int          `json:"playerCount,omitempty"`
-	Players     []PlayerInfo `json:"players,omitempty"`
-	Phase       string       `json:"phase,omitempty"`
-	Countdown   int          `json:"countdown,omitempty"`
-	Map         *GameMap     `json:"map,omitempty"`
+	Type        string           `json:"type"`
+	PlayerID    int              `json:"playerId,omitempty"`
+	Nickname    string           `json:"nickname,omitempty"`
+	Message     string           `json:"message,omitempty"`
+	PlayerCount int              `json:"playerCount,omitempty"`
+	Players     []PlayerInfo     `json:"players,omitempty"`
+	Phase       string           `json:"phase,omitempty"`
+	Countdown   int              `json:"countdown,omitempty"`
+	Map         *GameMap         `json:"map,omitempty"`
+	GamePlayers []GamePlayerInfo `json:"gamePlayers,omitempty"`
 }
 
 type Player struct {
 	ID       int
 	Nickname string
 	Conn     *websocket.Conn
+	X        float64
+	Y        float64
+	Lives    int
 	writeMu  sync.Mutex
 }
 
@@ -48,9 +52,22 @@ type PlayerInfo struct {
 	Nickname string `json:"nickname"`
 }
 
+type GamePlayerInfo struct {
+	ID       int     `json:"id"`
+	Nickname string  `json:"nickname"`
+	X        float64 `json:"x"`
+	Y        float64 `json:"y"`
+	Lives    int     `json:"lives"`
+}
+
 // game map
 type GameMap struct {
 	Rows  int        `json:"rows"`
 	Cols  int        `json:"cols"`
 	Tiles [][]string `json:"tiles"`
+}
+
+type Position struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
 }
