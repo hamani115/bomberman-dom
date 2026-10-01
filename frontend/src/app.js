@@ -293,6 +293,37 @@ const socket = createSocket({
       return;
     }
 
+    if (message.type === "player_disconnected") {
+      const state = store.getState();
+
+      runtimePositions.delete(message.playerId);
+      remoteTargets.delete(message.playerId);
+      runtimeSpeeds.delete(message.playerId);
+      playerElements.delete(message.playerId);
+
+      const chatMessages = [
+        ...state.chatMessages,
+        {
+          system: true,
+          message: `${message.nickname} disconnected.`,
+        },
+      ];
+
+      store.setState({
+        gamePlayers: state.gamePlayers.filter(
+          (player) => player.id !== message.playerId,
+        ),
+
+        players: state.players.filter(
+          (player) => player.id !== message.playerId,
+        ),
+
+        chatMessages: chatMessages.slice(-100),
+      });
+
+      return;
+    }
+
     if (message.type === "game_over") {
       if (stopMovement) {
         stopMovement();
@@ -566,10 +597,21 @@ function Chat(state, autofocus = false) {
             "No messages yet.",
           )
         : state.chatMessages.map((chatMessage) => {
+            if (chatMessage.system) {
+              return elem(
+                "p",
+                {
+                  class: "chat-message system-message",
+                },
+                chatMessage.message,
+              );
+            }
+
             const sender =
               chatMessage.playerId === state.playerId
                 ? `${chatMessage.nickname} (You)`
                 : chatMessage.nickname;
+
             return elem(
               "p",
               {

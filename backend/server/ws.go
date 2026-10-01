@@ -5,8 +5,15 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
+)
+
+const (
+	writeWait  = 5 * time.Second
+	pongWait   = 10 * time.Second
+	pingPeriod = 5 * time.Second
 )
 
 var upgrader = websocket.Upgrader{
@@ -25,15 +32,68 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	err = conn.SetReadDeadline(
+		time.Now().Add(pongWait),
+	)
+
+	if err != nil {
+		conn.Close()
+		return
+	}
+
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(
+			time.Now().Add(pongWait),
+		)
+	})
+
+	heartbeatDone := make(chan struct{})
+
+	go func() {
+		ticker := time.NewTicker(pingPeriod)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				err := conn.WriteControl(
+					websocket.PingMessage,
+					nil,
+					time.Now().Add(writeWait),
+				)
+
+				if err != nil {
+					conn.Close()
+					return
+				}
+
+			case <-heartbeatDone:
+				return
+			}
+		}
+	}()
+
 	var player *Player
 
 	defer func() {
+		close(heartbeatDone)
+
 		if player != nil {
-			lobby.RemovePlayer(player.ID)
+			playerID := player.ID
+			nickname := player.Nickname
+
+			lobby.RemovePlayer(playerID)
+
+			lobby.Broadcast(ServerMessage{
+				Type:     "player_disconnected",
+				PlayerID: playerID,
+				Nickname: nickname,
+			})
+
 			lobby.CheckGameOver()
 			lobby.PlayerCountChanged()
 
-			log.Printf("Player disconnected: %s\n", player.Nickname)
+			log.Printf("Player disconnected: %s\n", nickname)
 		}
 
 		conn.Close()

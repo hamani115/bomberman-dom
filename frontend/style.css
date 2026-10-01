@@ -98,6 +98,11 @@
   margin-top: 10px;
 }
 
+.system-message {
+  color: #666;
+  font-style: italic;
+}
+
 .chat-input {
   flex: 1;
   min-width: 0;
