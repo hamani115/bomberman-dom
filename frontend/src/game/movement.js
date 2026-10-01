@@ -32,13 +32,28 @@ function isTypingTarget(target) {
   return tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable;
 }
 
-function canCollide(gameMap, x, y) {
+function overlapsTile(x, y, row, col) {
   const halfSize = PLAYER_COLLISION_SIZE / 2;
   const epsilon = 0.001;
 
   const left = Math.floor(x - halfSize + epsilon);
   const right = Math.floor(x + halfSize - epsilon);
   const top = Math.floor(y - halfSize + epsilon);
+  const bottom = Math.floor(y + halfSize - epsilon);
+
+  return col >= left && col <= right && row >= top && row <= bottom;
+}
+
+function canCollide(gameMap, bombs, currentPosition, x, y) {
+  const halfSize = PLAYER_COLLISION_SIZE / 2;
+  const epsilon = 0.001;
+
+  const left = Math.floor(x - halfSize + epsilon);
+
+  const right = Math.floor(x + halfSize - epsilon);
+
+  const top = Math.floor(y - halfSize + epsilon);
+
   const bottom = Math.floor(y + halfSize - epsilon);
 
   for (let row = top; row <= bottom; row++) {
@@ -49,6 +64,25 @@ function canCollide(gameMap, x, y) {
         return false;
       }
     }
+  }
+
+  for (const bomb of bombs.values()) {
+    if (!overlapsTile(x, y, bomb.row, bomb.col)) {
+      continue;
+    }
+
+    const alreadyOverlapping = overlapsTile(
+      currentPosition.x,
+      currentPosition.y,
+      bomb.row,
+      bomb.col,
+    );
+
+    if (alreadyOverlapping) {
+      continue;
+    }
+
+    return false;
   }
 
   return true;
@@ -68,6 +102,7 @@ function moveToward(value, target, amount) {
 
 export function startMovement({
   getGameMap,
+  getBombs,
   getPosition,
   setPosition,
   getElement,
@@ -161,6 +196,7 @@ export function startMovement({
     const direction = getDirection();
     const position = getPosition();
     const gameMap = getGameMap();
+    const bombs = getBombs();
 
     if (position && gameMap && (direction.x !== 0 || direction.y !== 0)) {
       let x = position.x;
@@ -178,7 +214,7 @@ export function startMovement({
         const centerY = Math.floor(y) + 0.5;
         const snappedY = moveToward(y, centerY, snapDistance);
 
-        if (canCollide(gameMap, x, snappedY)) {
+        if (canCollide(gameMap, bombs, position, x, snappedY)) {
           y = snappedY;
         }
       }
@@ -187,20 +223,20 @@ export function startMovement({
         const centerX = Math.floor(x) + 0.5;
         const snappedX = moveToward(x, centerX, snapDistance);
 
-        if (canCollide(gameMap, snappedX, y)) {
+        if (canCollide(gameMap, bombs, position, snappedX, y)) {
           x = snappedX;
         }
       }
 
       const nextX = x + direction.x * distance;
 
-      if (canCollide(gameMap, nextX, y)) {
+      if (canCollide(gameMap, bombs, position, nextX, y)) {
         x = nextX;
       }
 
       const nextY = y + direction.y * distance;
 
-      if (canCollide(gameMap, x, nextY)) {
+      if (canCollide(gameMap, bombs, position, x, nextY)) {
         y = nextY;
       }
 

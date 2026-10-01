@@ -365,7 +365,7 @@ func (l *Lobby) MovePlayer(playerID int, x, y float64) (GamePlayerInfo, bool) {
 		return GamePlayerInfo{}, false
 	}
 
-	if !canPlayerCollide(l.gameMap, x, y) {
+	if !l.canPlayerMoveToLocked(player, x, y) {
 		return GamePlayerInfo{
 			ID:       player.ID,
 			Nickname: player.Nickname,

@@ -77,6 +77,16 @@ func (l *Lobby) PlaceBomb(playerID int) (BombInfo, error) {
 	return bombInfo, nil
 }
 
+func (l *Lobby) bombAtLocked(row, col int) *Bomb {
+	for _, bomb := range l.bombs {
+		if bomb.Row == row && bomb.Col == col {
+			return bomb
+		}
+	}
+
+	return nil
+}
+
 func (l *Lobby) explodeBomb(bombID int) {
 	l.mu.Lock()
 
@@ -102,6 +112,7 @@ func (l *Lobby) explodeBomb(bombID int) {
 
 	destroyedBlocks := []Cell{}
 	spawnedPowerUps := []PowerUp{}
+	chainBombIDs := []int{}
 
 	directions := [][2]int{
 		{-1, 0}, //up
@@ -129,6 +140,11 @@ func (l *Lobby) explodeBomb(bombID int) {
 				Row: row,
 				Col: col,
 			})
+
+			if chainedBomb := l.bombAtLocked(row, col); chainedBomb != nil {
+				chainBombIDs = append(chainBombIDs, chainedBomb.ID)
+				break
+			}
 
 			if tile == tileBlock {
 				l.gameMap.Tiles[row][col] = tileFloor
@@ -200,6 +216,12 @@ func (l *Lobby) explodeBomb(bombID int) {
 		SpawnedPowerUps: spawnedPowerUps,
 	})
 
+	if !gameOver {
+		for _, chainedBombID := range chainBombIDs {
+			l.explodeBomb(chainedBombID)
+		}
+	}
+
 	if gameOver {
 		l.Broadcast(ServerMessage{
 			Type:      "game_over",
@@ -228,4 +250,29 @@ func playerHitByExplosion(player *Player, explosion []Cell) bool {
 	}
 
 	return false
+}
+
+func (l *Lobby) canPlayerMoveToLocked(player *Player, x, y float64) bool {
+	if !canPlayerCollide(l.gameMap, x, y) {
+		return false
+	}
+
+	for _, bomb := range l.bombs {
+		if !playerOverlapsTile(x, y, bomb.Row, bomb.Col) {
+			continue
+		}
+
+		if playerOverlapsTile(
+			player.X,
+			player.Y,
+			bomb.Row,
+			bomb.Col,
+		) {
+			continue
+		}
+
+		return false
+	}
+
+	return true
 }

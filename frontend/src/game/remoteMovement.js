@@ -25,11 +25,28 @@ export function startRemoteMovement({
         continue;
       }
 
+      const differenceX = target.x - position.x;
+      const differenceY = target.y - position.y;
+
+      if (Math.abs(differenceX) < 0.001 && Math.abs(differenceY) < 0.001) {
+        if (position.x !== target.x || position.y !== target.y) {
+          position.x = target.x;
+          position.y = target.y;
+
+          const element = playerElements.get(playerId);
+
+          if (element) {
+            element.style.transform = `translate3d(${position.x * TILE_SIZE - PLAYER_SIZE / 2}px, ${position.y * TILE_SIZE - PLAYER_SIZE / 2}px, 0)`;
+          }
+        }
+
+        continue;
+      }
+
       const smoothing = Math.min(1, deltaTime * 12);
 
-      position.x += (target.x - position.x) * smoothing;
-
-      position.y += (target.y - position.y) * smoothing;
+      position.x += differenceX * smoothing;
+      position.y += differenceY * smoothing;
 
       const element = playerElements.get(playerId);
 

@@ -31,6 +31,7 @@ const playerElements = new Map();
 const runtimePositions = new Map();
 const remoteTargets = new Map();
 const runtimeSpeeds = new Map();
+const runtimeBombs = new Map();
 
 let runtimeGameMap = null;
 
@@ -219,6 +220,7 @@ function startLocalMovement() {
 
   stopMovement = startMovement({
     getGameMap: () => runtimeGameMap,
+    getBombs: () => runtimeBombs,
     getPosition: () => runtimePositions.get(state.playerId),
     setPosition: (position) => {
       runtimePositions.set(state.playerId, position);
@@ -260,6 +262,8 @@ const socket = createSocket({
     }
 
     if (message.type === "game_start") {
+      runtimeBombs.clear();
+
       const gamePlayers = message.gamePlayers.map((player) => ({
         ...player,
         maxBombs: 1,
@@ -333,6 +337,7 @@ const socket = createSocket({
       runtimePositions.clear();
       remoteTargets.clear();
       runtimeSpeeds.clear();
+      runtimeBombs.clear();
 
       runtimeGameMap = null;
 
@@ -384,6 +389,8 @@ const socket = createSocket({
     if (message.type === "bomb_placed") {
       const state = store.getState();
 
+      runtimeBombs.set(message.bomb.id, message.bomb);
+
       store.setState({
         bombs: [...state.bombs, message.bomb],
       });
@@ -393,6 +400,8 @@ const socket = createSocket({
 
     if (message.type === "bomb_exploded") {
       const state = store.getState();
+
+      runtimeBombs.delete(message.bomb.id);
 
       const explosion = {
         id: message.bomb.id,

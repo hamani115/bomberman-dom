@@ -18,7 +18,7 @@ const (
 
 const (
 	playerSpeed         = 3.0
-	playerCollisionSize = 0.72
+	playerCollisionSize = 0.64
 )
 
 var safeSpawnTiles = map[[2]int]bool{
@@ -95,6 +95,21 @@ func GenerateMap() *GameMap {
 		Cols:  mapCols,
 		Tiles: tiles,
 	}
+}
+
+func playerOverlapsTile(x, y float64, row, col int) bool {
+	halfSize := playerCollisionSize / 2
+	epsilon := 0.001
+
+	left := int(math.Floor(x - halfSize + epsilon))
+	right := int(math.Floor(x + halfSize - epsilon))
+	top := int(math.Floor(y - halfSize + epsilon))
+	bottom := int(math.Floor(y + halfSize - epsilon))
+
+	return col >= left &&
+		col <= right &&
+		row >= top &&
+		row <= bottom
 }
 
 func canPlayerCollide(gameMap *GameMap, x, y float64) bool {
