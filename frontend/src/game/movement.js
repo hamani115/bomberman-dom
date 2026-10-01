@@ -32,7 +32,7 @@ function isTypingTarget(target) {
   return tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable;
 }
 
-function canOccupy(gameMap, x, y) {
+function canCollide(gameMap, x, y) {
   const halfSize = PLAYER_COLLISION_SIZE / 2;
   const epsilon = 0.001;
 
@@ -59,12 +59,28 @@ export function startMovement({
   getPosition,
   setPosition,
   getElement,
+  onMove,
+  onBomb,
 }) {
   let animationFrame = null;
   let previousTime = performance.now();
 
   function handleKeyDown(event) {
     if (isTypingTarget(event.target)) {
+      return;
+    }
+
+    if (event.code === "Space") {
+      if (isTypingTarget(event.target)) {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (!event.repeat && onBomb) {
+        onBomb();
+      }
+
       return;
     }
 
@@ -136,29 +152,41 @@ export function startMovement({
       let x = position.x;
       let y = position.y;
 
+      const originalX = x;
+      const originalY = y;
+
       const distance = PLAYER_SPEED * deltaTime;
 
       const nextX = x + direction.x * distance;
 
-      if (canOccupy(gameMap, nextX, y)) {
+      if (canCollide(gameMap, nextX, y)) {
         x = nextX;
       }
 
       const nextY = y + direction.y * distance;
 
-      if (canOccupy(gameMap, x, nextY)) {
+      if (canCollide(gameMap, x, nextY)) {
         y = nextY;
       }
 
-      setPosition({
-        x,
-        y,
-      });
+      if (x !== originalX || y !== originalY) {
+        setPosition({
+          x,
+          y,
+        });
 
-      const element = getElement();
+        const element = getElement();
 
-      if (element) {
-        element.style.transform = `translate3d(${x * TILE_SIZE - PLAYER_SIZE / 2}px, ${y * TILE_SIZE - PLAYER_SIZE / 2}px, 0)`;
+        if (element) {
+          element.style.transform = `translate3d(${x * TILE_SIZE - PLAYER_SIZE / 2}px, ${y * TILE_SIZE - PLAYER_SIZE / 2}px, 0)`;
+        }
+
+        if (onMove) {
+          onMove({
+            x,
+            y,
+          });
+        }
       }
     }
 

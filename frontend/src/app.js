@@ -2,6 +2,7 @@ import { elem, createStore, createApp } from "../framework/index.js";
 
 import { createSocket } from "./network/socket.js";
 import { startMovement } from "./game/movement.js";
+import { startRemoteMovement } from "./game/remoteMovement.js";
 
 import { TILE_SIZE, PLAYER_SIZE } from "./game/constants.js";
 
@@ -17,6 +18,7 @@ const store = createStore({
   countdown: 0,
   gameMap: null,
   gamePlayers: [],
+  bombs: [],
   error: "",
 });
 
@@ -24,19 +26,99 @@ let chatDraft = "";
 
 const playerElements = new Map();
 const runtimePositions = new Map();
+const remoteTargets = new Map();
 
+let stopRemoteMovement = null;
 let stopMovement = null;
+
+let lastMoveSentAt = 0;
+
+const MOVE_SEND_INTERVAL = 50;
+
+function placeBomb() {
+  socket.send({
+    type: "place_bomb",
+  });
+}
+
+function Bomb(bomb) {
+  const size = 28;
+  const offset = (TILE_SIZE - size) / 2;
+
+  return elem(
+    "div",
+    {
+      class: "bomb",
+      "data-bomb-id": bomb.id,
+      style: `transform: translate3d(${bomb.col * TILE_SIZE + offset}px, ${bomb.row * TILE_SIZE + offset}px, 0);`,
+    },
+    elem("div", {
+      class: "bomb-body",
+    }),
+  );
+}
+
+function setPlayerPosition(playerId, position) {
+  runtimePositions.set(playerId, {
+    x: position.x,
+    y: position.y,
+  });
+
+  const element = playerElements.get(playerId);
+
+  if (element) {
+    element.style.transform = `translate3d(${position.x * TILE_SIZE - PLAYER_SIZE / 2}px, ${position.y * TILE_SIZE - PLAYER_SIZE / 2}px, 0)`;
+  }
+}
+
+function startRemotePlayers() {
+  if (stopRemoteMovement) {
+    stopRemoteMovement();
+  }
+
+  const state = store.getState();
+
+  stopRemoteMovement = startRemoteMovement({
+    localPlayerId: state.playerId,
+    runtimePositions,
+    remoteTargets,
+    playerElements,
+  });
+}
+
+function sendLocalPosition(position) {
+  const now = performance.now();
+
+  if (now - lastMoveSentAt < MOVE_SEND_INTERVAL) {
+    return;
+  }
+
+  lastMoveSentAt = now;
+
+  socket.send({
+    type: "move",
+    x: position.x,
+    y: position.y,
+  });
+}
 
 function initializeRuntimePlayers(players) {
   playerElements.clear();
   runtimePositions.clear();
+  remoteTargets.clear();
 
   for (const player of players) {
-    runtimePositions.set(player.id, {
+    const position = {
       x: player.x,
       y: player.y,
-    });
+    };
+
+    runtimePositions.set(player.id, position);
+
+    remoteTargets.set(player.id, position);
   }
+
+  lastMoveSentAt = 0;
 }
 
 function startLocalMovement() {
@@ -56,14 +138,13 @@ function startLocalMovement() {
 
   stopMovement = startMovement({
     gameMap: state.gameMap,
-
     getPosition: () => runtimePositions.get(state.playerId),
-
     setPosition: (position) => {
       runtimePositions.set(state.playerId, position);
     },
-
     getElement: () => playerElements.get(state.playerId),
+    onMove: sendLocalPosition,
+    onBomb: placeBomb,
   });
 }
 
@@ -105,9 +186,61 @@ const socket = createSocket({
         countdown: 0,
         gameMap: message.map,
         gamePlayers: message.gamePlayers,
+        bombs: [],
       });
 
       startLocalMovement();
+      startRemotePlayers();
+
+      return;
+    }
+
+    if (message.type === "player_move") {
+      const state = store.getState();
+
+      if (message.playerId === state.playerId) {
+        return;
+      }
+
+      remoteTargets.set(message.playerId, {
+        x: message.x,
+        y: message.y,
+      });
+
+      return;
+    }
+
+    if (message.type === "player_correction") {
+      const state = store.getState();
+
+      if (message.playerId !== state.playerId) {
+        return;
+      }
+
+      setPlayerPosition(message.playerId, {
+        x: message.x,
+        y: message.y,
+      });
+
+      return;
+    }
+
+    if (message.type === "bomb_placed") {
+      const state = store.getState();
+
+      store.setState({
+        bombs: [...state.bombs, message.bomb],
+      });
+
+      return;
+    }
+
+    if (message.type === "bomb_removed") {
+      const state = store.getState();
+
+      store.setState({
+        bombs: state.bombs.filter((bomb) => bomb.id !== message.bomb.id),
+      });
 
       return;
     }
@@ -355,6 +488,13 @@ function GameBoard(state) {
           }),
         ),
       ),
+    ),
+    elem(
+      "div",
+      {
+        class: "bomb-layer",
+      },
+      state.bombs.map((bomb) => Bomb(bomb)),
     ),
     elem(
       "div",

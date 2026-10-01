@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -13,8 +14,11 @@ const maxPlayers = 4
 
 func NewLobby() *Lobby {
 	return &Lobby{
-		players: make(map[int]*Player),
-		nextID:  1,
+		players:    make(map[int]*Player),
+		nextID:     1,
+		phase:      "waiting",
+		bombs:      make(map[int]*Bomb),
+		nextBombID: 1,
 	}
 }
 
@@ -263,6 +267,8 @@ func (l *Lobby) runCountdown(cancel <-chan struct{}) {
 				l.countdown = 0
 				l.countdownCancel = nil
 				l.gameMap = gameMap
+				l.bombs = make(map[int]*Bomb)
+				l.nextBombID = 1
 
 				l.mu.Unlock()
 
@@ -306,6 +312,10 @@ func (l *Lobby) assignSpawnPositionsLocked() []GamePlayerInfo {
 		player.X = spawn.X
 		player.Y = spawn.Y
 		player.Lives = 3
+		player.MaxBombs = 1
+		player.ActiveBombs = 0
+		player.BombRange = 1
+		player.LastMoveAt = time.Now()
 
 		gamePlayers = append(gamePlayers, GamePlayerInfo{
 			ID:       player.ID,
@@ -317,4 +327,64 @@ func (l *Lobby) assignSpawnPositionsLocked() []GamePlayerInfo {
 	}
 
 	return gamePlayers
+}
+
+func (l *Lobby) MovePlayer(playerID int, x, y float64) (GamePlayerInfo, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	player, exists := l.players[playerID]
+
+	if !exists || l.phase != "game" || l.gameMap == nil {
+		return GamePlayerInfo{}, false
+	}
+
+	if math.IsNaN(x) || math.IsNaN(y) || math.IsInf(x, 0) || math.IsInf(y, 0) {
+		return GamePlayerInfo{}, false
+	}
+
+	if !canPlayerCollide(l.gameMap, x, y) {
+		return GamePlayerInfo{
+			ID:       player.ID,
+			Nickname: player.Nickname,
+			X:        player.X,
+			Y:        player.Y,
+			Lives:    player.Lives,
+		}, false
+	}
+
+	elapsed := time.Since(player.LastMoveAt).Seconds()
+
+	if elapsed > 0.25 {
+		elapsed = 0.25
+	}
+
+	distance := math.Hypot(
+		x-player.X,
+		y-player.Y,
+	)
+
+	maxDistance := playerSpeed*elapsed + 0.15
+
+	if distance > maxDistance {
+		return GamePlayerInfo{
+			ID:       player.ID,
+			Nickname: player.Nickname,
+			X:        player.X,
+			Y:        player.Y,
+			Lives:    player.Lives,
+		}, false
+	}
+
+	player.X = x
+	player.Y = y
+	player.LastMoveAt = time.Now()
+
+	return GamePlayerInfo{
+		ID:       player.ID,
+		Nickname: player.Nickname,
+		X:        player.X,
+		Y:        player.Y,
+		Lives:    player.Lives,
+	}, true
 }

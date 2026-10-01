@@ -94,6 +94,53 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			lobby.PlayerCountChanged()
 		}
 
+		if clientMessage.Type == "move" {
+			if player == nil {
+				continue
+			}
+
+			gamePlayer, accepted := lobby.MovePlayer(
+				player.ID,
+				clientMessage.X,
+				clientMessage.Y,
+			)
+
+			if !accepted {
+				player.Send(ServerMessage{
+					Type:     "player_correction",
+					PlayerID: player.ID,
+					X:        gamePlayer.X,
+					Y:        gamePlayer.Y,
+				})
+
+				continue
+			}
+
+			lobby.Broadcast(ServerMessage{
+				Type:     "player_move",
+				PlayerID: player.ID,
+				X:        gamePlayer.X,
+				Y:        gamePlayer.Y,
+			})
+		}
+
+		if clientMessage.Type == "place_bomb" {
+			if player == nil {
+				continue
+			}
+
+			bomb, err := lobby.PlaceBomb(player.ID)
+
+			if err != nil {
+				continue
+			}
+
+			lobby.Broadcast(ServerMessage{
+				Type: "bomb_placed",
+				Bomb: &bomb,
+			})
+		}
+
 		if clientMessage.Type == "chat" {
 			if player == nil {
 				continue

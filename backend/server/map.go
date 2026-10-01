@@ -1,6 +1,9 @@
 package server
 
-import "math/rand"
+import (
+	"math"
+	"math/rand"
+)
 
 const (
 	mapRows = 13
@@ -11,6 +14,11 @@ const (
 	tileFloor = "floor"
 	tileWall  = "wall"
 	tileBlock = "block"
+)
+
+const (
+	playerSpeed         = 3.0
+	playerCollisionSize = 0.72
 )
 
 var safeSpawnTiles = map[[2]int]bool{
@@ -87,4 +95,28 @@ func GenerateMap() *GameMap {
 		Cols:  mapCols,
 		Tiles: tiles,
 	}
+}
+
+func canPlayerCollide(gameMap *GameMap, x, y float64) bool {
+	halfSize := playerCollisionSize / 2
+	epsilon := 0.001
+
+	left := int(math.Floor(x - halfSize + epsilon))
+	right := int(math.Floor(x + halfSize - epsilon))
+	top := int(math.Floor(y - halfSize + epsilon))
+	bottom := int(math.Floor(y + halfSize - epsilon))
+
+	for row := top; row <= bottom; row++ {
+		for col := left; col <= right; col++ {
+			if row < 0 || row >= gameMap.Rows || col < 0 || col >= gameMap.Cols {
+				return false
+			}
+
+			if gameMap.Tiles[row][col] != tileFloor {
+				return false
+			}
+		}
+	}
+
+	return true
 }
