@@ -23,7 +23,7 @@ var upgrader = websocket.Upgrader{
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	log.Println("WebSocket request received")
+	// log.Println("WebSocket request received")
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 
@@ -93,19 +93,19 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			lobby.CheckGameOver()
 			lobby.PlayerCountChanged()
 
-			log.Printf("Player disconnected: %s\n", nickname)
+			// log.Printf("Player disconnected: %s\n", nickname)
 		}
 
 		conn.Close()
 	}()
 
-	log.Println("WebSocket client connected")
+	// log.Println("WebSocket client connected")
 
 	for {
 		_, message, err := conn.ReadMessage()
 
 		if err != nil {
-			log.Println("WebSocket client disconnected")
+			// log.Println("WebSocket client disconnected")
 			break
 		}
 
@@ -149,8 +149,6 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				break
 			}
-
-			log.Printf("Player joined: %s (ID %d)\n", player.Nickname, player.ID)
 
 			lobby.PlayerCountChanged()
 		}
@@ -233,7 +231,6 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				Message:  message,
 			})
 
-			log.Printf("%s: %s\n", player.Nickname, message)
 		}
 	}
 }

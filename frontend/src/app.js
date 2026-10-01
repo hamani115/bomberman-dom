@@ -48,27 +48,69 @@ function GameHud(state) {
     {
       class: "game-hud",
     },
-
     state.gamePlayers.map((player) =>
       elem(
         "div",
         {
           class: player.alive ? "hud-player" : "hud-player eliminated",
         },
-
         elem(
-          "strong",
-          {},
-          player.id === state.playerId
-            ? `${player.nickname} (You)`
-            : player.nickname,
+          "div",
+          {
+            class: "hud-top",
+          },
+          elem(
+            "strong",
+            {},
+            player.id === state.playerId
+              ? `${player.nickname} (You)`
+              : player.nickname,
+          ),
+          player.alive
+            ? elem(
+                "span",
+                {
+                  class: "hud-lives",
+                },
+                `Lives: ${player.lives}`,
+              )
+            : elem(
+                "span",
+                {
+                  class: "hud-dead",
+                },
+                "DEAD",
+              ),
         ),
-
-        " — ",
-
         player.alive
-          ? `Lives: ${player.lives} | Bombs: ${player.maxBombs} | Flame: ${player.bombRange} | Speed: ${Number(player.speed).toFixed(1)}`
-          : "OUT",
+          ? elem(
+              "div",
+              {
+                class: "hud-stats",
+              },
+              elem(
+                "span",
+                {
+                  class: "hud-chip",
+                },
+                `Bombs: ${player.maxBombs}`,
+              ),
+              elem(
+                "span",
+                {
+                  class: "hud-chip",
+                },
+                `Flame: ${player.bombRange}`,
+              ),
+              elem(
+                "span",
+                {
+                  class: "hud-chip",
+                },
+                `Speed: ${Number(player.speed).toFixed(1)}`,
+              ),
+            )
+          : null,
       ),
     ),
   );
@@ -131,9 +173,15 @@ function Bomb(bomb) {
       "data-bomb-id": bomb.id,
       style: `transform: translate3d(${bomb.col * TILE_SIZE + offset}px, ${bomb.row * TILE_SIZE + offset}px, 0);`,
     },
-    elem("div", {
-      class: "bomb-body",
-    }),
+    elem(
+      "div",
+      {
+        class: "bomb-body",
+      },
+      elem("div", {
+        class: "bomb-shine",
+      }),
+    ),
   );
 }
 
@@ -305,7 +353,7 @@ const socket = createSocket({
         ...state.chatMessages,
         {
           system: true,
-          message: `${message.nickname} disconnected.`,
+          message: `${message.nickname} disconnected`,
         },
       ];
 
@@ -594,7 +642,7 @@ function Chat(state, autofocus = false) {
             {
               class: "chat-empty",
             },
-            "No messages yet.",
+            "No messages yet",
           )
         : state.chatMessages.map((chatMessage) => {
             if (chatMessage.system) {
@@ -669,32 +717,38 @@ function NicknameScreen(state) {
       class: "nickname-screen",
     },
     elem("h1", {}, "Bomberman DOM"),
-    elem("p", {}, "Enter a nickname to join the game."),
-    elem("input", {
-      type: "text",
-      placeholder: "Nickname",
-      autofocus: true,
-      events: {
-        input: (event) => {
-          nickname = event.target.value;
-        },
-        keydown: (event) => {
-          if (event.key === "Enter") {
-            joinGame(nickname);
-          }
-        },
-      },
-    }),
+    elem("p", {}, "Enter a nickname to join the game"),
     elem(
-      "button",
+      "div",
       {
+        class: "nickname-form",
+      },
+      elem("input", {
+        type: "text",
+        placeholder: "Nickname",
+        autofocus: true,
         events: {
-          click: () => {
-            joinGame(nickname);
+          input: (event) => {
+            nickname = event.target.value;
+          },
+          keydown: (event) => {
+            if (event.key === "Enter") {
+              joinGame(nickname);
+            }
           },
         },
-      },
-      "Join",
+      }),
+      elem(
+        "button",
+        {
+          events: {
+            click: () => {
+              joinGame(nickname);
+            },
+          },
+        },
+        "Join",
+      ),
     ),
     state.error
       ? elem(
@@ -871,13 +925,33 @@ function Player(player, state) {
     "div",
     {
       class: isCurrentPlayer ? "player current-player" : "player",
-
       "data-player-id": player.id,
       ref: (element) => {
         playerElements.set(player.id, element);
       },
       style: `transform: translate3d(${position.x * TILE_SIZE - PLAYER_SIZE / 2}px, ${position.y * TILE_SIZE - PLAYER_SIZE / 2}px, 0);`,
     },
+    elem(
+      "div",
+      {
+        class: "player-face",
+      },
+      elem(
+        "div",
+        {
+          class: "player-eyes",
+        },
+        elem("span", {
+          class: "player-eye",
+        }),
+        elem("span", {
+          class: "player-eye",
+        }),
+      ),
+      elem("div", {
+        class: "player-smile",
+      }),
+    ),
     elem(
       "span",
       {

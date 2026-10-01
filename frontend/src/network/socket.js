@@ -9,7 +9,7 @@ export function createSocket({ onOpen, onMessage, onClose, onError } = {}) {
     socket = new WebSocket(url);
 
     socket.addEventListener("open", () => {
-      console.log("WebSocket connected");
+      // console.log("WebSocket connected");
 
       if (onOpen) {
         onOpen();
@@ -19,7 +19,7 @@ export function createSocket({ onOpen, onMessage, onClose, onError } = {}) {
     socket.addEventListener("message", (event) => {
       const data = JSON.parse(event.data);
 
-      console.log("WebSocket message:", data);
+      // console.log("WebSocket message:", data);
 
       if (onMessage) {
         onMessage(data);
@@ -27,7 +27,7 @@ export function createSocket({ onOpen, onMessage, onClose, onError } = {}) {
     });
 
     socket.addEventListener("close", () => {
-      console.log("WebSocket disconnected");
+      // console.log("WebSocket disconnected");
 
       if (onClose) {
         onClose();
