@@ -4,7 +4,7 @@ import { createSocket } from "./network/socket.js";
 import { startMovement } from "./game/movement.js";
 import { startRemoteMovement } from "./game/remoteMovement.js";
 
-import { TILE_SIZE, PLAYER_SIZE } from "./game/constants.js";
+import { TILE_SIZE, PLAYER_SIZE, PLAYER_SPEED } from "./game/constants.js";
 
 const store = createStore({
   screen: "nickname",
@@ -19,6 +19,9 @@ const store = createStore({
   gameMap: null,
   gamePlayers: [],
   bombs: [],
+  explosions: [],
+  powerUps: [],
+  winner: null,
   error: "",
 });
 
@@ -27,6 +30,9 @@ let chatDraft = "";
 const playerElements = new Map();
 const runtimePositions = new Map();
 const remoteTargets = new Map();
+const runtimeSpeeds = new Map();
+
+let runtimeGameMap = null;
 
 let stopRemoteMovement = null;
 let stopMovement = null;
@@ -34,6 +40,78 @@ let stopMovement = null;
 let lastMoveSentAt = 0;
 
 const MOVE_SEND_INTERVAL = 50;
+
+function GameHud(state) {
+  return elem(
+    "div",
+    {
+      class: "game-hud",
+    },
+
+    state.gamePlayers.map((player) =>
+      elem(
+        "div",
+        {
+          class: player.alive ? "hud-player" : "hud-player eliminated",
+        },
+
+        elem(
+          "strong",
+          {},
+          player.id === state.playerId
+            ? `${player.nickname} (You)`
+            : player.nickname,
+        ),
+
+        " — ",
+
+        player.alive
+          ? `Lives: ${player.lives} | Bombs: ${player.maxBombs} | Flame: ${player.bombRange} | Speed: ${Number(player.speed).toFixed(1)}`
+          : "OUT",
+      ),
+    ),
+  );
+}
+
+function applyPlayerUpdates(players, updates) {
+  const updatesById = new Map(updates.map((player) => [player.id, player]));
+
+  return players.map((player) => {
+    const update = updatesById.get(player.id);
+
+    if (!update) {
+      return player;
+    }
+
+    return {
+      ...player,
+      ...update,
+    };
+  });
+}
+
+function ExplosionCell(explosionId, cell) {
+  return elem("div", {
+    class: "explosion",
+    "data-explosion-id": explosionId,
+    "data-row": cell.row,
+    "data-col": cell.col,
+    style: `transform: translate3d(${cell.col * TILE_SIZE}px, ${cell.row * TILE_SIZE}px, 0);`,
+  });
+}
+
+function applyDestroyedBlocks(gameMap, destroyedBlocks) {
+  const tiles = gameMap.tiles.map((row) => [...row]);
+
+  for (const block of destroyedBlocks) {
+    tiles[block.row][block.col] = "floor";
+  }
+
+  return {
+    ...gameMap,
+    tiles,
+  };
+}
 
 function placeBomb() {
   socket.send({
@@ -106,6 +184,7 @@ function initializeRuntimePlayers(players) {
   playerElements.clear();
   runtimePositions.clear();
   remoteTargets.clear();
+  runtimeSpeeds.clear();
 
   for (const player of players) {
     const position = {
@@ -116,6 +195,8 @@ function initializeRuntimePlayers(players) {
     runtimePositions.set(player.id, position);
 
     remoteTargets.set(player.id, position);
+
+    runtimeSpeeds.set(player.id, player.speed ?? PLAYER_SPEED);
   }
 
   lastMoveSentAt = 0;
@@ -137,12 +218,13 @@ function startLocalMovement() {
   }
 
   stopMovement = startMovement({
-    gameMap: state.gameMap,
+    getGameMap: () => runtimeGameMap,
     getPosition: () => runtimePositions.get(state.playerId),
     setPosition: (position) => {
       runtimePositions.set(state.playerId, position);
     },
     getElement: () => playerElements.get(state.playerId),
+    getSpeed: () => runtimeSpeeds.get(state.playerId) ?? PLAYER_SPEED,
     onMove: sendLocalPosition,
     onBomb: placeBomb,
   });
@@ -178,19 +260,93 @@ const socket = createSocket({
     }
 
     if (message.type === "game_start") {
-      initializeRuntimePlayers(message.gamePlayers);
+      const gamePlayers = message.gamePlayers.map((player) => ({
+        ...player,
+        maxBombs: 1,
+        bombRange: 1,
+        speed: PLAYER_SPEED,
+      }));
+
+      initializeRuntimePlayers(gamePlayers);
+
+      runtimeGameMap = message.map;
 
       store.setState({
         screen: "game",
         lobbyPhase: "game",
         countdown: 0,
         gameMap: message.map,
-        gamePlayers: message.gamePlayers,
+        gamePlayers,
         bombs: [],
+        explosions: [],
+        powerUps: [],
+        winner: null,
       });
 
       startLocalMovement();
       startRemotePlayers();
+
+      return;
+    }
+
+    if (message.type === "game_over") {
+      if (stopMovement) {
+        stopMovement();
+        stopMovement = null;
+      }
+
+      if (stopRemoteMovement) {
+        stopRemoteMovement();
+        stopRemoteMovement = null;
+      }
+
+      store.setState({
+        screen: "game_over",
+        lobbyPhase: "game_over",
+        winner: message.winner ?? null,
+        countdown: message.countdown,
+      });
+
+      return;
+    }
+
+    if (message.type === "game_over_countdown") {
+      store.setState({
+        countdown: message.countdown,
+      });
+
+      return;
+    }
+
+    if (message.type === "lobby_reset") {
+      if (stopMovement) {
+        stopMovement();
+        stopMovement = null;
+      }
+
+      if (stopRemoteMovement) {
+        stopRemoteMovement();
+        stopRemoteMovement = null;
+      }
+
+      playerElements.clear();
+      runtimePositions.clear();
+      remoteTargets.clear();
+      runtimeSpeeds.clear();
+
+      runtimeGameMap = null;
+
+      store.setState({
+        screen: "waiting",
+        lobbyPhase: "waiting",
+        countdown: 0,
+        gameMap: null,
+        gamePlayers: [],
+        bombs: [],
+        explosions: [],
+        powerUps: [],
+        winner: null,
+      });
 
       return;
     }
@@ -235,11 +391,94 @@ const socket = createSocket({
       return;
     }
 
-    if (message.type === "bomb_removed") {
+    if (message.type === "bomb_exploded") {
       const state = store.getState();
+
+      const explosion = {
+        id: message.bomb.id,
+        cells: message.explosion,
+      };
+
+      const updatedGameMap = applyDestroyedBlocks(
+        state.gameMap,
+        message.destroyedBlocks ?? [],
+      );
+
+      const damagedPlayers = message.damagedPlayers ?? [];
+      const spawnedPowerUps = message.spawnedPowerUps ?? [];
+
+      for (const player of damagedPlayers) {
+        runtimePositions.set(player.id, {
+          x: player.x,
+          y: player.y,
+        });
+
+        remoteTargets.set(player.id, {
+          x: player.x,
+          y: player.y,
+        });
+
+        if (!player.alive) {
+          playerElements.delete(player.id);
+          remoteTargets.delete(player.id);
+        }
+      }
+
+      const updatedPlayers = applyPlayerUpdates(
+        state.gamePlayers,
+        damagedPlayers,
+      );
+
+      runtimeGameMap = updatedGameMap;
 
       store.setState({
         bombs: state.bombs.filter((bomb) => bomb.id !== message.bomb.id),
+        gameMap: updatedGameMap,
+        gamePlayers: updatedPlayers,
+        explosions: [...state.explosions, explosion],
+        powerUps: [...state.powerUps, ...spawnedPowerUps],
+      });
+
+      const localPlayerUpdate = damagedPlayers.find(
+        (player) => player.id === state.playerId,
+      );
+
+      if (localPlayerUpdate && !localPlayerUpdate.alive && stopMovement) {
+        stopMovement();
+        stopMovement = null;
+      }
+
+      setTimeout(() => {
+        const currentState = store.getState();
+
+        store.setState({
+          explosions: currentState.explosions.filter(
+            (currentExplosion) => currentExplosion.id !== explosion.id,
+          ),
+        });
+      }, 450);
+
+      return;
+    }
+
+    if (message.type === "power_up_collected") {
+      const state = store.getState();
+
+      const playerUpdate = {
+        id: message.playerId,
+        maxBombs: message.maxBombs,
+        bombRange: message.bombRange,
+        speed: message.speed,
+      };
+
+      runtimeSpeeds.set(message.playerId, message.speed);
+
+      store.setState({
+        powerUps: state.powerUps.filter(
+          (powerUp) => powerUp.id !== message.powerUp.id,
+        ),
+
+        gamePlayers: applyPlayerUpdates(state.gamePlayers, [playerUpdate]),
       });
 
       return;
@@ -492,6 +731,13 @@ function GameBoard(state) {
     elem(
       "div",
       {
+        class: "power-up-layer",
+      },
+      state.powerUps.map((powerUp) => PowerUp(powerUp)),
+    ),
+    elem(
+      "div",
+      {
         class: "bomb-layer",
       },
       state.bombs.map((bomb) => Bomb(bomb)),
@@ -499,9 +745,21 @@ function GameBoard(state) {
     elem(
       "div",
       {
+        class: "explosion-layer",
+      },
+
+      state.explosions.flatMap((explosion) =>
+        explosion.cells.map((cell) => ExplosionCell(explosion.id, cell)),
+      ),
+    ),
+    elem(
+      "div",
+      {
         class: "player-layer",
       },
-      state.gamePlayers.map((player) => Player(player, state)),
+      state.gamePlayers
+        .filter((player) => player.alive)
+        .map((player) => Player(player, state)),
     ),
   );
 }
@@ -518,8 +776,34 @@ function GameScreen(state) {
         class: "game-area",
       },
       elem("h1", {}, "Bomberman"),
+      GameHud(state),
       GameBoard(state),
     ),
+    Chat(state),
+  );
+}
+
+function GameOverScreen(state) {
+  const winnerText = state.winner
+    ? state.winner.id === state.playerId
+      ? "You win!"
+      : `${state.winner.nickname} wins!`
+    : "Draw!";
+
+  return elem(
+    "main",
+    {
+      class: "game-over-screen",
+    },
+    elem("h1", {}, "Game Over"),
+    elem(
+      "h2",
+      {
+        class: "game-result",
+      },
+      winnerText,
+    ),
+    elem("p", {}, `Returning to the waiting room in ${state.countdown}...`),
     Chat(state),
   );
 }
@@ -553,6 +837,27 @@ function Player(player, state) {
   );
 }
 
+function PowerUp(powerUp) {
+  const size = 28;
+  const offset = (TILE_SIZE - size) / 2;
+
+  const labels = {
+    bomb: "B",
+    flame: "F",
+    speed: "S",
+  };
+
+  return elem(
+    "div",
+    {
+      class: `power-up power-up-${powerUp.type}`,
+      "data-power-up-id": powerUp.id,
+      style: `transform: translate3d(${powerUp.col * TILE_SIZE + offset}px, ${powerUp.row * TILE_SIZE + offset}px, 0);`,
+    },
+    labels[powerUp.type] ?? "?",
+  );
+}
+
 function joinGame(rawNickname) {
   const nickname = rawNickname.trim();
 
@@ -583,8 +888,13 @@ function App(state) {
     return GameScreen(state);
   }
 
+  if (state.screen === "game_over") {
+    return GameOverScreen(state);
+  }
+
   return elem("main", {}, "Unknown screen");
 }
+
 const app = createApp({
   root: "#app",
   store,

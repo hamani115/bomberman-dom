@@ -16,19 +16,28 @@ type ClientMessage struct {
 }
 
 type ServerMessage struct {
-	Type        string           `json:"type"`
-	PlayerID    int              `json:"playerId,omitempty"`
-	Nickname    string           `json:"nickname,omitempty"`
-	Message     string           `json:"message,omitempty"`
-	PlayerCount int              `json:"playerCount,omitempty"`
-	Players     []PlayerInfo     `json:"players,omitempty"`
-	Phase       string           `json:"phase,omitempty"`
-	Countdown   int              `json:"countdown,omitempty"`
-	Map         *GameMap         `json:"map,omitempty"`
-	GamePlayers []GamePlayerInfo `json:"gamePlayers,omitempty"`
-	X           float64          `json:"x,omitempty"`
-	Y           float64          `json:"y,omitempty"`
-	Bomb        *BombInfo        `json:"bomb,omitempty"`
+	Type            string           `json:"type"`
+	PlayerID        int              `json:"playerId,omitempty"`
+	Nickname        string           `json:"nickname,omitempty"`
+	Message         string           `json:"message,omitempty"`
+	PlayerCount     int              `json:"playerCount,omitempty"`
+	Players         []PlayerInfo     `json:"players,omitempty"`
+	Phase           string           `json:"phase,omitempty"`
+	Countdown       int              `json:"countdown,omitempty"`
+	Map             *GameMap         `json:"map,omitempty"`
+	GamePlayers     []GamePlayerInfo `json:"gamePlayers,omitempty"`
+	X               float64          `json:"x,omitempty"`
+	Y               float64          `json:"y,omitempty"`
+	Bomb            *BombInfo        `json:"bomb,omitempty"`
+	Explosion       []Cell           `json:"explosion,omitempty"`
+	DestroyedBlocks []Cell           `json:"destroyedBlocks,omitempty"`
+	DamagedPlayers  []GamePlayerInfo `json:"damagedPlayers,omitempty"`
+	SpawnedPowerUps []PowerUp        `json:"spawnedPowerUps,omitempty"`
+	PowerUp         *PowerUp         `json:"powerUp,omitempty"`
+	MaxBombs        int              `json:"maxBombs,omitempty"`
+	BombRange       int              `json:"bombRange,omitempty"`
+	Speed           float64          `json:"speed,omitempty"`
+	Winner          *PlayerInfo      `json:"winner,omitempty"`
 }
 
 type Player struct {
@@ -37,10 +46,14 @@ type Player struct {
 	Conn        *websocket.Conn
 	X           float64
 	Y           float64
+	SpawnX      float64
+	SpawnY      float64
+	Alive       bool
 	Lives       int
 	MaxBombs    int
 	ActiveBombs int
 	BombRange   int
+	Speed       float64
 	LastMoveAt  time.Time
 	writeMu     sync.Mutex
 }
@@ -56,6 +69,8 @@ type Lobby struct {
 	gameMap         *GameMap
 	bombs           map[int]*Bomb
 	nextBombID      int
+	powerUps        map[int]*PowerUp
+	nextPowerUpID   int
 }
 
 type PlayerInfo struct {
@@ -69,6 +84,7 @@ type GamePlayerInfo struct {
 	X        float64 `json:"x"`
 	Y        float64 `json:"y"`
 	Lives    int     `json:"lives"`
+	Alive    bool    `json:"alive"`
 }
 
 // game map
@@ -98,4 +114,9 @@ type BombInfo struct {
 	Row     int `json:"row"`
 	Col     int `json:"col"`
 	Range   int `json:"range"`
+}
+
+type Cell struct {
+	Row int `json:"row"`
+	Col int `json:"col"`
 }

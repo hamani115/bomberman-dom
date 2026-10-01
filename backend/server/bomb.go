@@ -23,6 +23,11 @@ func (l *Lobby) PlaceBomb(playerID int) (BombInfo, error) {
 		return BombInfo{}, errors.New("player does not exist")
 	}
 
+	if !player.Alive {
+		l.mu.Unlock()
+		return BombInfo{}, errors.New("player is eliminated")
+	}
+
 	if player.ActiveBombs >= player.MaxBombs {
 		l.mu.Unlock()
 		return BombInfo{}, errors.New("bomb limit reached")
@@ -66,18 +71,18 @@ func (l *Lobby) PlaceBomb(playerID int) (BombInfo, error) {
 	l.mu.Unlock()
 
 	time.AfterFunc(bombFuse, func() {
-		l.removeBomb(bomb.ID)
+		l.explodeBomb(bomb.ID)
 	})
 
 	return bombInfo, nil
 }
 
-func (l *Lobby) removeBomb(bombID int) {
+func (l *Lobby) explodeBomb(bombID int) {
 	l.mu.Lock()
 
 	bomb, exists := l.bombs[bombID]
 
-	if !exists {
+	if !exists || l.gameMap == nil || l.phase != "game" {
 		l.mu.Unlock()
 		return
 	}
@@ -88,6 +93,60 @@ func (l *Lobby) removeBomb(bombID int) {
 		owner.ActiveBombs--
 	}
 
+	explosion := []Cell{
+		{
+			Row: bomb.Row,
+			Col: bomb.Col,
+		},
+	}
+
+	destroyedBlocks := []Cell{}
+	spawnedPowerUps := []PowerUp{}
+
+	directions := [][2]int{
+		{-1, 0}, //up
+		{1, 0},  //down
+		{0, -1}, //left
+		{0, 1},  //right
+	}
+
+	for _, direction := range directions {
+		for distance := 1; distance <= bomb.Range; distance++ {
+			row := bomb.Row + direction[0]*distance
+			col := bomb.Col + direction[1]*distance
+
+			if row < 0 || row >= l.gameMap.Rows || col < 0 || col >= l.gameMap.Cols {
+				break
+			}
+
+			tile := l.gameMap.Tiles[row][col]
+
+			if tile == tileWall {
+				break
+			}
+
+			explosion = append(explosion, Cell{
+				Row: row,
+				Col: col,
+			})
+
+			if tile == tileBlock {
+				l.gameMap.Tiles[row][col] = tileFloor
+
+				destroyedBlocks = append(destroyedBlocks, Cell{
+					Row: row,
+					Col: col,
+				})
+
+				if powerUp := l.createPowerUpLocked(row, col); powerUp != nil {
+					spawnedPowerUps = append(spawnedPowerUps, *powerUp)
+				}
+
+				break
+			}
+		}
+	}
+
 	bombInfo := BombInfo{
 		ID:      bomb.ID,
 		OwnerID: bomb.OwnerID,
@@ -96,10 +155,77 @@ func (l *Lobby) removeBomb(bombID int) {
 		Range:   bomb.Range,
 	}
 
+	damagedPlayers := []GamePlayerInfo{}
+
+	for _, player := range l.players {
+		if !player.Alive {
+			continue
+		}
+
+		if !playerHitByExplosion(player, explosion) {
+			continue
+		}
+
+		player.Lives--
+
+		if player.Lives <= 0 {
+			player.Lives = 0
+			player.Alive = false
+		} else {
+			player.X = player.SpawnX
+			player.Y = player.SpawnY
+			player.LastMoveAt = time.Now()
+		}
+
+		damagedPlayers = append(damagedPlayers, GamePlayerInfo{
+			ID:       player.ID,
+			Nickname: player.Nickname,
+			X:        player.X,
+			Y:        player.Y,
+			Lives:    player.Lives,
+			Alive:    player.Alive,
+		})
+	}
+
+	winner, gameOver := l.finishGameIfNeededLocked()
+
 	l.mu.Unlock()
 
 	l.Broadcast(ServerMessage{
-		Type: "bomb_removed",
-		Bomb: &bombInfo,
+		Type:            "bomb_exploded",
+		Bomb:            &bombInfo,
+		Explosion:       explosion,
+		DestroyedBlocks: destroyedBlocks,
+		DamagedPlayers:  damagedPlayers,
+		SpawnedPowerUps: spawnedPowerUps,
 	})
+
+	if gameOver {
+		l.Broadcast(ServerMessage{
+			Type:      "game_over",
+			Winner:    winner,
+			Countdown: gameOverCountdown,
+		})
+
+		l.scheduleLobbyReset()
+	}
+}
+
+func playerHitByExplosion(player *Player, explosion []Cell) bool {
+	halfSize := playerCollisionSize / 2
+	epsilon := 0.001
+
+	left := int(math.Floor(player.X - halfSize + epsilon))
+	right := int(math.Floor(player.X + halfSize - epsilon))
+	top := int(math.Floor(player.Y - halfSize + epsilon))
+	bottom := int(math.Floor(player.Y + halfSize - epsilon))
+
+	for _, cell := range explosion {
+		if cell.Row >= top && cell.Row <= bottom &&
+			cell.Col >= left && cell.Col <= right {
+			return true
+		}
+	}
+
+	return false
 }

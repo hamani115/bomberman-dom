@@ -30,6 +30,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if player != nil {
 			lobby.RemovePlayer(player.ID)
+			lobby.CheckGameOver()
 			lobby.PlayerCountChanged()
 
 			log.Printf("Player disconnected: %s\n", player.Nickname)
@@ -122,6 +123,19 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				X:        gamePlayer.X,
 				Y:        gamePlayer.Y,
 			})
+
+			collection, collected := lobby.CollectPowerUp(player.ID)
+
+			if collected {
+				lobby.Broadcast(ServerMessage{
+					Type:      "power_up_collected",
+					PlayerID:  player.ID,
+					PowerUp:   &collection.PowerUp,
+					MaxBombs:  collection.MaxBombs,
+					BombRange: collection.BombRange,
+					Speed:     collection.Speed,
+				})
+			}
 		}
 
 		if clientMessage.Type == "place_bomb" {

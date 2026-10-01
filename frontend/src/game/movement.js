@@ -54,11 +54,24 @@ function canCollide(gameMap, x, y) {
   return true;
 }
 
+function moveToward(value, target, amount) {
+  if (value < target) {
+    return Math.min(value + amount, target);
+  }
+
+  if (value > target) {
+    return Math.max(value - amount, target);
+  }
+
+  return value;
+}
+
 export function startMovement({
-  gameMap,
+  getGameMap,
   getPosition,
   setPosition,
   getElement,
+  getSpeed,
   onMove,
   onBomb,
 }) {
@@ -147,15 +160,37 @@ export function startMovement({
 
     const direction = getDirection();
     const position = getPosition();
+    const gameMap = getGameMap();
 
-    if (position && (direction.x !== 0 || direction.y !== 0)) {
+    if (position && gameMap && (direction.x !== 0 || direction.y !== 0)) {
       let x = position.x;
       let y = position.y;
 
       const originalX = x;
       const originalY = y;
 
-      const distance = PLAYER_SPEED * deltaTime;
+      const speed = getSpeed ? getSpeed() : PLAYER_SPEED;
+
+      const distance = speed * deltaTime;
+      const snapDistance = (speed + 2) * deltaTime;
+
+      if (direction.x !== 0 && direction.y === 0) {
+        const centerY = Math.floor(y) + 0.5;
+        const snappedY = moveToward(y, centerY, snapDistance);
+
+        if (canCollide(gameMap, x, snappedY)) {
+          y = snappedY;
+        }
+      }
+
+      if (direction.y !== 0 && direction.x === 0) {
+        const centerX = Math.floor(x) + 0.5;
+        const snappedX = moveToward(x, centerX, snapDistance);
+
+        if (canCollide(gameMap, snappedX, y)) {
+          x = snappedX;
+        }
+      }
 
       const nextX = x + direction.x * distance;
 

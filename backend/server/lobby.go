@@ -12,13 +12,17 @@ import (
 
 const maxPlayers = 4
 
+const gameOverCountdown = 10
+
 func NewLobby() *Lobby {
 	return &Lobby{
-		players:    make(map[int]*Player),
-		nextID:     1,
-		phase:      "waiting",
-		bombs:      make(map[int]*Bomb),
-		nextBombID: 1,
+		players:       make(map[int]*Player),
+		nextID:        1,
+		phase:         "waiting",
+		bombs:         make(map[int]*Bomb),
+		nextBombID:    1,
+		powerUps:      make(map[int]*PowerUp),
+		nextPowerUpID: 1,
 	}
 }
 
@@ -41,8 +45,8 @@ func (l *Lobby) AddPlayer(conn *websocket.Conn, nickname string) (*Player, error
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if l.phase == "game" {
-		return nil, errors.New("the game has already started")
+	if l.phase == "game" || l.phase == "game_over" {
+		return nil, errors.New("the game is not accepting new players")
 	}
 
 	if len(l.players) >= maxPlayers {
@@ -162,7 +166,7 @@ func (l *Lobby) PlayerCountChanged() {
 
 	playerCount := len(l.players)
 
-	if l.phase == "game" {
+	if l.phase == "game" || l.phase == "game_over" {
 		l.mu.Unlock()
 		l.BroadcastState()
 		return
@@ -269,6 +273,8 @@ func (l *Lobby) runCountdown(cancel <-chan struct{}) {
 				l.gameMap = gameMap
 				l.bombs = make(map[int]*Bomb)
 				l.nextBombID = 1
+				l.powerUps = make(map[int]*PowerUp)
+				l.nextPowerUpID = 1
 
 				l.mu.Unlock()
 
@@ -311,10 +317,14 @@ func (l *Lobby) assignSpawnPositionsLocked() []GamePlayerInfo {
 
 		player.X = spawn.X
 		player.Y = spawn.Y
+		player.SpawnX = spawn.X
+		player.SpawnY = spawn.Y
 		player.Lives = 3
+		player.Alive = true
 		player.MaxBombs = 1
 		player.ActiveBombs = 0
 		player.BombRange = 1
+		player.Speed = playerSpeed
 		player.LastMoveAt = time.Now()
 
 		gamePlayers = append(gamePlayers, GamePlayerInfo{
@@ -323,6 +333,7 @@ func (l *Lobby) assignSpawnPositionsLocked() []GamePlayerInfo {
 			X:        player.X,
 			Y:        player.Y,
 			Lives:    player.Lives,
+			Alive:    player.Alive,
 		})
 	}
 
@@ -339,6 +350,17 @@ func (l *Lobby) MovePlayer(playerID int, x, y float64) (GamePlayerInfo, bool) {
 		return GamePlayerInfo{}, false
 	}
 
+	if !player.Alive {
+		return GamePlayerInfo{
+			ID:       player.ID,
+			Nickname: player.Nickname,
+			X:        player.X,
+			Y:        player.Y,
+			Lives:    player.Lives,
+			Alive:    player.Alive,
+		}, false
+	}
+
 	if math.IsNaN(x) || math.IsNaN(y) || math.IsInf(x, 0) || math.IsInf(y, 0) {
 		return GamePlayerInfo{}, false
 	}
@@ -350,6 +372,7 @@ func (l *Lobby) MovePlayer(playerID int, x, y float64) (GamePlayerInfo, bool) {
 			X:        player.X,
 			Y:        player.Y,
 			Lives:    player.Lives,
+			Alive:    player.Alive,
 		}, false
 	}
 
@@ -364,7 +387,7 @@ func (l *Lobby) MovePlayer(playerID int, x, y float64) (GamePlayerInfo, bool) {
 		y-player.Y,
 	)
 
-	maxDistance := playerSpeed*elapsed + 0.15
+	maxDistance := player.Speed*elapsed + 0.15
 
 	if distance > maxDistance {
 		return GamePlayerInfo{
@@ -373,6 +396,7 @@ func (l *Lobby) MovePlayer(playerID int, x, y float64) (GamePlayerInfo, bool) {
 			X:        player.X,
 			Y:        player.Y,
 			Lives:    player.Lives,
+			Alive:    player.Alive,
 		}, false
 	}
 
@@ -386,5 +410,125 @@ func (l *Lobby) MovePlayer(playerID int, x, y float64) (GamePlayerInfo, bool) {
 		X:        player.X,
 		Y:        player.Y,
 		Lives:    player.Lives,
+		Alive:    player.Alive,
 	}, true
+}
+
+func (l *Lobby) finishGameIfNeededLocked() (*PlayerInfo, bool) {
+	if l.phase != "game" {
+		return nil, false
+	}
+
+	alivePlayers := make([]*Player, 0)
+
+	for _, player := range l.players {
+		if player.Alive {
+			alivePlayers = append(alivePlayers, player)
+		}
+	}
+
+	if len(alivePlayers) > 1 {
+		return nil, false
+	}
+
+	l.phase = "game_over"
+	l.countdown = gameOverCountdown
+	l.bombs = make(map[int]*Bomb)
+
+	if len(alivePlayers) == 0 {
+		return nil, true
+	}
+
+	winner := &PlayerInfo{
+		ID:       alivePlayers[0].ID,
+		Nickname: alivePlayers[0].Nickname,
+	}
+
+	return winner, true
+}
+
+func (l *Lobby) CheckGameOver() {
+	l.mu.Lock()
+
+	winner, gameOver := l.finishGameIfNeededLocked()
+
+	l.mu.Unlock()
+
+	if !gameOver {
+		return
+	}
+
+	l.Broadcast(ServerMessage{
+		Type:      "game_over",
+		Winner:    winner,
+		Countdown: gameOverCountdown,
+	})
+
+	l.scheduleLobbyReset()
+}
+
+func (l *Lobby) scheduleLobbyReset() {
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			l.mu.Lock()
+
+			if l.phase != "game_over" {
+				l.mu.Unlock()
+				return
+			}
+
+			l.countdown--
+
+			countdown := l.countdown
+
+			l.mu.Unlock()
+
+			if countdown <= 0 {
+				l.resetLobby()
+				return
+			}
+
+			l.Broadcast(ServerMessage{
+				Type:      "game_over_countdown",
+				Countdown: countdown,
+			})
+		}
+	}()
+}
+
+func (l *Lobby) resetLobby() {
+	l.mu.Lock()
+
+	if l.phase != "game_over" {
+		l.mu.Unlock()
+		return
+	}
+
+	l.stopWaitTimerLocked()
+	l.cancelCountdownLocked()
+
+	l.phase = "waiting"
+	l.countdown = 0
+	l.gameMap = nil
+	l.bombs = make(map[int]*Bomb)
+	l.nextBombID = 1
+	l.powerUps = make(map[int]*PowerUp)
+	l.nextPowerUpID = 1
+
+	for _, player := range l.players {
+		player.Alive = false
+		player.Lives = 0
+		player.ActiveBombs = 0
+	}
+
+	l.mu.Unlock()
+
+	l.Broadcast(ServerMessage{
+		Type: "lobby_reset",
+	})
+
+	l.PlayerCountChanged()
 }
